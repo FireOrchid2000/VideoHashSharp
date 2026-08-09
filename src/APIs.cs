@@ -6,6 +6,9 @@ using System.Threading.Tasks;
 
 namespace VideoHashSharp
 {
+    /// <summary>
+    /// 视频媒体数据的内容哈希值
+    /// </summary>
     public readonly struct VideoHash
     {
         /// <summary>
@@ -59,15 +62,15 @@ namespace VideoHashSharp
         /// <summary>
         /// 执行采样,并返回样本帧数据流的迭代器
         /// </summary>
-        /// <param name="videoStream">视频媒体数据流</param>
+        /// <param name="videoFile">视频媒体数据流</param>
         /// <returns>样本帧数据流的迭代器</returns>
-        IEnumerable<Stream> Sample(Stream videoStream);
+        IEnumerable<Stream> Sample(string videoFile, SamplerArgs samplerArgs);
         /// <summary>
         /// 异步执行采样,并返回样本帧数据流的异步迭代器
         /// </summary>
         /// <param name="videoStream">视频媒体数据流</param>
         /// <returns>样本帧数据流的异步迭代器</returns>
-        IAsyncEnumerable<Stream> SampleAsync(Stream videoStream);
+        IAsyncEnumerable<Stream> SampleAsync(string videoFile, SamplerArgs samplerArgs);
         /// <summary>
         /// 返回当前采样器是否可以作用于指定类型的哈希器
         /// </summary>
@@ -88,7 +91,7 @@ namespace VideoHashSharp
         /// <param name="sampler">采样器</param>
         /// <param name="samplerArgs">采样参数</param>
         /// <returns>视频媒体数据流的哈希值</returns>
-        byte[] Hash(Stream videoStream, ISampler sampler, SamplerArgs samplerArgs);
+        byte[] Hash(string videoFile, ISampler sampler, SamplerArgs samplerArgs);
         /// <summary>
         /// 计算两个视频哈希相似度,1.0为完全相同,0.0为完全不同
         /// </summary>
