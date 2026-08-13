@@ -1,8 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Numerics;
 using System.Text;
 using System.Threading.Tasks;
+using CoenM.ImageHash;
 using CoenM.ImageHash.HashAlgorithms;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
@@ -182,16 +184,46 @@ namespace VideoHashSharp
         }
     }
 
-
-
-    public class Average : IHasher
+    /// <summary>
+    /// 平均哈希算法
+    /// </summary>
+    /// <remarks>
+    /// 平均哈希算法（Average Hashing）是一种基于像素的哈希算法，
+    /// 它通过计算视频帧的像素平均值来生成哈希值。具体来说，
+    /// 平均哈希算法首先将视频帧的像素值转换为灰度值，然后计算
+    public class AverageHasher : IHasher
     {
-        private IHashMerger merger = new MajorityVoteMerger();
+        private IHashMerger merger = new AveHashMegerger();
 
 
+        /// <summary>
+        /// 计算两个视频哈希的相似度，1.0 为完全相同，0.0 为完全不同。
+        /// 按较短的哈希逐字节比较汉明距离，因此支持任意长度的哈希字节数组
+        /// </summary>
+        /// <param name="hash1">第一个内容哈希</param>
+        /// <param name="hash2">第二个内容哈希</param>
+        /// <returns>相似度，取值 [0, 1]</returns>
+        /// <exception cref="ArgumentNullException"></exception>
         public double Compare(byte[] hash1, byte[] hash2)
         {
-            throw new NotImplementedException();
+            ArgumentNullException.ThrowIfNull(hash1, nameof(hash1));
+            ArgumentNullException.ThrowIfNull(hash2, nameof(hash2));
+
+            // 无公共字节可比较时视为完全不同
+            if (hash1.Length == 0 || hash2.Length == 0)
+                return 0.0;
+
+            // 按较短哈希的字节数比较，超出部分不参与计算
+            int length = Math.Min(hash1.Length, hash2.Length);
+            int totalBits = length * 8;
+            int diffBits = 0;
+            for (int i = 0; i < length; i++)
+            {
+                // 异或后统计置 1 的位数即为该字节的汉明距离
+                diffBits += BitOperations.PopCount((byte)(hash1[i] ^ hash2[i]));
+            }
+            // 相似度 = 1 - 不同位数占比
+            return 1.0 - (double)diffBits / totalBits;
         }
         /// <summary>
         /// 计算哈希值
@@ -250,14 +282,15 @@ namespace VideoHashSharp
             // 结果集合，存放每帧计算出的感知哈希
             List<byte[]> hashs = [];
 
-            AverageHash averageHash = new();
+            CoenM.ImageHash.HashAlgorithms.AverageHash averageHash = new();
             // 异步逐帧遍历样本流（可被取消），保证每帧流只被读取一次
             await foreach (Stream frame in samples.WithCancellation(ct))
             {
                 // 帧获取间隙检查取消，尽早响应取消请求
                 ct.ThrowIfCancellationRequested();
                 // using 确保图像解码占用的非托管内存及时释放
-                using Image<Rgba32> img = (Image<Rgba32>)Image.Load(frame);
+                // Image.Load<Rgba32> 会将任意像素格式（如 ffmpeg PNG 的 Rgb24）转换为 Rgba32，直接强转会失败
+                using Image<Rgba32> img = Image.Load<Rgba32>(frame);
                 // 计算单帧感知哈希（ulong），转为大端序字节数组参与后续融合
                 hashs.Add(averageHash.Hash(img).ToBytes());
                 // 帧流已消费完毕，及时释放
@@ -280,12 +313,13 @@ namespace VideoHashSharp
 
             // 结果集合，存放每帧计算出的感知哈希
             List<byte[]> hashs = [];
-            AverageHash averageHash = new();
+            CoenM.ImageHash.HashAlgorithms.AverageHash averageHash = new();
             // 逐帧遍历样本流，保证每帧流只被读取一次
             foreach (Stream frame in samples)
             {
                 // using 确保图像解码占用的非托管内存及时释放
-                using Image<Rgba32> img = (Image<Rgba32>)Image.Load(frame);
+                // Image.Load<Rgba32> 会将任意像素格式（如 ffmpeg PNG 的 Rgb24）转换为 Rgba32，直接强转会失败
+                using Image<Rgba32> img = Image.Load<Rgba32>(frame);
                 // 计算单帧感知哈希（ulong），转为大端序字节数组参与后续融合
                 hashs.Add(averageHash.Hash(img).ToBytes());
                 // 帧流已消费完毕，及时释放
@@ -297,4 +331,147 @@ namespace VideoHashSharp
         }
 
     }
+
+    public class DiffHasher : IHasher
+    {
+        private IHashMerger merger = new MajorityVoteMerger();
+
+
+        /// <summary>
+        /// 计算两个视频哈希的相似度，1.0 为完全相同，0.0 为完全不同。
+        /// 按较短的哈希逐字节比较汉明距离，因此支持任意长度的哈希字节数组
+        /// </summary>
+        /// <param name="hash1">第一个内容哈希</param>
+        /// <param name="hash2">第二个内容哈希</param>
+        /// <returns>相似度，取值 [0, 1]</returns>
+        /// <exception cref="ArgumentNullException"></exception>
+        public double Compare(byte[] hash1, byte[] hash2)
+        {
+            ArgumentNullException.ThrowIfNull(hash1, nameof(hash1));
+            ArgumentNullException.ThrowIfNull(hash2, nameof(hash2));
+
+            // 无公共字节可比较时视为完全不同
+            if (hash1.Length == 0 || hash2.Length == 0)
+                return 0.0;
+
+            // 按较短哈希的字节数比较，超出部分不参与计算
+            int length = Math.Min(hash1.Length, hash2.Length);
+            int totalBits = length * 8;
+            int diffBits = 0;
+            for (int i = 0; i < length; i++)
+            {
+                // 异或后统计置 1 的位数即为该字节的汉明距离
+                diffBits += BitOperations.PopCount((byte)(hash1[i] ^ hash2[i]));
+            }
+            // 相似度 = 1 - 不同位数占比
+            return 1.0 - (double)diffBits / totalBits;
+        }
+        /// <summary>
+        /// 计算哈希值
+        /// </summary>
+        /// <param name="videoFile"></param>
+        /// <param name="sampler"></param>
+        /// <param name="samplerArgs"></param>
+        /// <returns></returns>
+        /// <exception cref="ArgumentException"></exception>
+        public virtual byte[] Hash(string videoFile, ISampler sampler, SamplerArgs samplerArgs)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(videoFile, nameof(videoFile));
+            ArgumentNullException.ThrowIfNull(sampler, nameof(sampler));
+            ArgumentNullException.ThrowIfNull(samplerArgs, nameof(samplerArgs));
+
+            if (!sampler.CanActHasher(GetType()))
+            {
+                throw new ArgumentException($"类型为{sampler.GetType().FullName}的采样器不支持此哈希器", nameof(sampler));
+            }
+            if (!samplerArgs.CanActSample(sampler.GetType()))
+            {
+                throw new ArgumentException($"类型为{samplerArgs.GetType().FullName}的采样参数不支持类型为{sampler.GetType().FullName}的采样器", nameof(samplerArgs));
+            }
+            return Hash(sampler.Sample(videoFile, samplerArgs));
+        }
+
+        public virtual async Task<byte[]> HashAsync(string videoFile, ISampler sampler, SamplerArgs samplerArgs, CancellationToken ct = default)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(videoFile, nameof(videoFile));
+            ArgumentNullException.ThrowIfNull(sampler, nameof(sampler));
+            ArgumentNullException.ThrowIfNull(samplerArgs, nameof(samplerArgs));
+
+            if (!sampler.CanActHasher(GetType()))
+            {
+                throw new ArgumentException($"类型为{sampler.GetType().FullName}的采样器不支持此哈希器", nameof(sampler));
+            }
+            if (!samplerArgs.CanActSample(sampler.GetType()))
+            {
+                throw new ArgumentException($"类型为{samplerArgs.GetType().FullName}的采样参数不支持类型为{sampler.GetType().FullName}的采样器", nameof(samplerArgs));
+            }
+            return await HashAsync(sampler.SampleAsync(videoFile, samplerArgs, ct), ct);
+        }
+
+        /// <summary>
+        /// 异步计算样本帧集合的哈希：对每帧解码为图像并计算 AverageHash，再融合为单一哈希
+        /// </summary>
+        /// <param name="samples">样本帧数据流的异步枚举</param>
+        /// <param name="ct">取消令牌，取消时中止帧的获取</param>
+        /// <returns>融合后的内容哈希</returns>
+        /// <exception cref="ArgumentNullException"></exception>
+        protected virtual async Task<byte[]> HashAsync(IAsyncEnumerable<Stream> samples, CancellationToken ct = default)
+        {
+            // 参数空引用校验
+            ArgumentNullException.ThrowIfNull(samples, nameof(samples));
+
+            // 结果集合，存放每帧计算出的感知哈希
+            List<byte[]> hashs = [];
+
+            DifferenceHash diffHash = new();
+            // 异步逐帧遍历样本流（可被取消），保证每帧流只被读取一次
+            await foreach (Stream frame in samples.WithCancellation(ct))
+            {
+                // 帧获取间隙检查取消，尽早响应取消请求
+                ct.ThrowIfCancellationRequested();
+                // using 确保图像解码占用的非托管内存及时释放
+                // Image.Load<Rgba32> 会将任意像素格式（如 ffmpeg PNG 的 Rgb24）转换为 Rgba32，直接强转会失败
+                using Image<Rgba32> img = Image.Load<Rgba32>(frame);
+                // 计算单帧感知哈希（ulong），转为大端序字节数组参与后续融合
+                hashs.Add(diffHash.Hash(img).ToBytes());
+                // 帧流已消费完毕，及时释放
+                frame.Dispose();
+            }
+
+            // 将全部帧哈希融合为视频内容哈希
+            return merger.Merge(hashs);
+        }
+        /// <summary>
+        /// 计算样本帧集合的哈希：对每帧解码为图像并计算 AverageHash，再融合为单一哈希
+        /// </summary>
+        /// <param name="samples">样本帧数据流集合</param>
+        /// <returns>融合后的内容哈希</returns>
+        /// <exception cref="ArgumentNullException"></exception>
+        protected virtual byte[] Hash(IEnumerable<Stream> samples)
+        {
+            // 参数空引用校验
+            ArgumentNullException.ThrowIfNull(samples, nameof(samples));
+
+            // 结果集合，存放每帧计算出的感知哈希
+            List<byte[]> hashs = [];
+            DifferenceHash diffHash = new();
+            // 逐帧遍历样本流，保证每帧流只被读取一次
+            foreach (Stream frame in samples)
+            {
+                // using 确保图像解码占用的非托管内存及时释放
+                // Image.Load<Rgba32> 会将任意像素格式（如 ffmpeg PNG 的 Rgb24）转换为 Rgba32，直接强转会失败
+                using Image<Rgba32> img = Image.Load<Rgba32>(frame);
+                // 计算单帧感知哈希（ulong），转为大端序字节数组参与后续融合
+                hashs.Add(diffHash.Hash(img).ToBytes());
+                // 帧流已消费完毕，及时释放
+                frame.Dispose();
+            }
+
+            // 将全部帧哈希融合为视频内容哈希
+            return merger.Merge(hashs);
+        }
+
+    }
+
+    
 }

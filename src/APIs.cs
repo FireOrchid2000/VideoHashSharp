@@ -120,7 +120,6 @@ namespace VideoHashSharp
         /// <summary>
         /// 将多个哈希值融合在一起,融合结果保留源哈希的内容特征
         /// </summary>
-        /// <
         /// <returns>融合后的哈希值</returns>
         byte[] Merge(IEnumerable<byte[]> hashs);
     }
